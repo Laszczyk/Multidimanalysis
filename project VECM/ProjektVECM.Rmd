@@ -1,0 +1,197 @@
+---
+title: "Projekt VECM"
+author: "Jakub Laszczyk"
+date: "2024-05.30"
+output: html_document
+---
+
+# Opis danych
+
+W celu wykonania tego projektu pobrałem dane w zakresie dat od **1 stycznia 2005** do **1 stycznia 2020**. Wszytskie zbiory danych są podane w okresie miesięcznym.
+Wybrane zbiory danych:
+
+-**ceny złota w relacji do polskiego złotego**
+
+-**ceny srebra w relacji do polskiego złotego**
+
+-**wskaźnik bezrobocie w Polsce**
+
+-**notowania giełdowe spółki KGHM**
+
+
+# Wykorzystane biblioteki
+
+```{r, results = FALSE, warning=FALSE, message=FALSE}
+library(tsDyn)
+library(vars)
+library(lubridate)
+library(dplyr)
+library(zoo)
+library(tseries)
+```
+
+# Wczytanie danych danych
+
+```{r}
+# Ceny złota
+dane1<-read.csv("xaupln_m.csv") 
+
+# Ceny srebra
+dane2<-read.csv("xagpln_m.csv") 
+
+# Bezrobocie
+dane3<-read.csv("unrtpl_m_m.csv") 
+
+# Notowania KGHM
+dane4<-read.csv("kgh_m.csv") 
+```
+
+# Przekształcenia danych
+
+Wybieram tylko kolumnę z datą i wartością zamknięcia
+```{r}
+dane1<-dane1[,c(1,5)]
+dane2<-dane2[,c(1,5)]
+dane3<-dane3[,c(1,5)]
+dane4<-dane4[,c(1,5)]
+dane1$Data<-ymd(dane1$Data)
+dane2$Data<-ymd(dane2$Data)
+dane3$Data<-ymd(dane3$Data)
+dane4$Data<-ymd(dane4$Data)
+```
+
+# Łączenie tabel
+
+```{r}
+dane1$Data<-ymd(dane1$Data)
+dane2$Data<-ymd(dane2$Data)
+dane3$Data<-ymd(dane3$Data)
+dane4$Data<-ymd(dane4$Data)
+
+poloczone1<-full_join(dane1, dane2,by="Data")
+poloczone2<-full_join(dane3, dane4,by="Data")
+data<-full_join(poloczone1,poloczone2,by="Data")
+data<-data[1:180,]
+colnames(data) <- c("Data","Zloto", "Srebro", "Bezrobocie", "KGHM")
+data$Bezrobocie<-abs(data$Bezrobocie)
+```
+
+# Sortowanie i sprawdzenie występowania wartości odstających
+
+```{r}
+data<-arrange(data, Data)
+sum(is.na(data))
+head(data)
+```
+
+# Przekształcenie brakujących wartości poprzez zastąpienie interpolacją
+
+W naszym zbiorze danych występują 3 wartości odstające, w których miejsce wstawiam wartość uzyskane poprzez interpolacje wartości sąsiednich.
+```{r}
+data<-as.data.frame(na.approx(data[2:5]))
+```
+
+# Test stacjonarności danych początkowych
+```{r}
+data_bezdat <- data[,1:4]
+for(i in 1:ncol(data_bezdat))
+{
+  show(adf.test(data_bezdat[,i]))
+}
+```
+Analizując wyniki z przyjętym poziomem istotności 0.05:
+
+Złoto: Wartość p (0.6126) jest większa niż 0.05, więc nie mamy wystarczających dowodów na odrzucenie hipotezy zerowej. Szereg czasowy jest uznawany za niestacjonarny.
+
+Srebro: Wartość p (0.7164) również jest większa niż 0.05, więc nie mamy wystarczających dowodów na odrzucenie hipotezy zerowej. Szereg czasowy jest niestacjonarny.
+
+Bezrobocie: Wartość p (0.7004) jest również większa niż 0.05, co sugeruje brak wystarczających dowodów na odrzucenie hipotezy zerowej. Szereg czasowy jest niestacjonarny.
+
+KGHM: Wartość p (0.3241) jest większa niż 0.05, więc nie mamy wystarczających dowodów na odrzucenie hipotezy zerowej. Szereg czasowy jest uznawany za niestacjonarny.
+
+# Wygładzenie danych poprzez logarytmowanie
+```{r}
+dane_w <-log(data[, 1:4])
+
+colnames(dane_w)<- c("Zloto", "Srebro", "Bezrobocie", "KGHM")
+head(dane_w)
+```
+
+# Test stacjonarności danych
+```{r}
+
+for (i in 1:ncol(dane_w)){
+  show(adf.test(dane_w[,i]))
+}
+```
+Analizując wyniki z przyjętym poziomem istotności 0.05:
+
+Złoto: Wartość p-value (0.6189) jest większa niż 0.05, więc nie mamy wystarczających dowodów na odrzucenie hipotezy zerowej. Oznacza to, że szereg czasowy jest uznawany za niestacjonarny.
+
+Srebro: Wartość p-value (0.6273) również przekracza poziom istotności 0.05, co sugeruje, że szereg czasowy jest niestacjonarny.
+
+Bezrobocie: Wartość p-value (0.9419) jest znacznie większa od poziomu istotności, co oznacza, że brak jest wystarczających dowodów na odrzucenie hipotezy zerowej. Zatem również ten szereg czasowy jest uznawany za niestacjonarny.
+
+KGHM: Wartość p-value (0.05819) jest bliska, ale nieco wyższa niż przyjęty poziom istotności 0.05. Możemy uznać ten szereg za niestacjonarny.
+
+
+# Test stacjonarności przyrostów
+```{r, results = FALSE, warning=FALSE, message=FALSE}
+roznice <- as.data.frame(matrix(NA, (nrow(data)-1), ncol(data)))
+    for (i in (1:ncol(data))){
+      for(j in 1:(nrow(data)-1)){
+        roznice[j,i] <- log(data[j+1,i])-log(data[j,i])
+      }
+    }
+        for (i in 1:ncol(roznice)){
+          show(adf.test(roznice[,i]))
+        }
+```
+
+Analizując wyniki z przyjętym poziomem istotności 0.05, możemy zauważyć, że każda wartość p-value jest mniejsza od 0.05, co mówi o stacjonarności przyrostów.
+
+
+# Opóźnienia
+```{r}
+wybor <- VARselect(data)
+print(wybor$selection)
+```
+Wybierając opóźnienia, zgodnie z metodyką w VAR, można uznać, że krtyeria nie stwierdzają jednoznczanie na konkretne opóźnienie. Między wartością 4 i 2 zostaje wybrana tak większa. Do estymacji modelu zostaje zastosowana wartość opóźnienia 3; o 1 mniejsza niż dla VAR
+
+# Test stopnia kointegracji
+```{r}
+show(summary(ca.jo(dane_w,K=3)))
+```
+Pierwszy wiersz tabeli "Values of test statistic and critical values of test" informuje nas, że wartość testu (0.62) jest mniejsza niż 1% krytyczne wartości dla r <= 3 (11.65), co oznacza, że odrzucamy hipotezę o braku kointegracji (r = 0, brak kointegracji) na poziomie istotności 1%.
+Pierwszy wektor własny (Eigenvectors) pokazuje, że wszystkie zmienne są kointegrowane w tej samej relacji kointegracyjnej. Wszystkie współczynniki dla pierwszej kolumny (która reprezentuje pierwszy wektor własny) są znaczące, co sugeruje, że każda zmienna ma stały związek z pozostałymi zmiennymi w długim okresie.
+
+Podsumowując, na podstawie wyników testu Johansena oraz analizy wektorów własnych i wag, możemy stwierdzić, że istnieje jedna kointegracyjna relacja między zmiennymi Zloto, Srebro, Bezrobocie i KGHM, a zatem przyjmujemy hipotezę o kointegracji na poziomie istotności 1%.
+
+# Estymacja modelu 
+```{r}
+model<- VECM(dane_w[,1:4],
+             lag=3, 
+             r=1, 
+             estim = "ML")
+summary(model)
+```
+
+Model VECM wykazał istnienie długoterminowych związków między badanymi zmiennymi (złoto, srebro, bezrobocie, KGHM), z czego szczególnie ważny jest wpływ zmiennej KGHM, której korekty krótkoterminowe są znaczące i szybkie. Równowaga długoterminowa między zmiennymi jest istotna, z istotnymi autokorelacjami i korektami błędów w odpowiedzi na odchylenia od tej równowagi. Ukazuje on znaczące i szybkie dostosowanie KGHM do długoterminowej równowagi, z istotnymi efektami korekty błędów, wskazując na duży wpływ przeszłych wartości na bieżącą cenę akcji. Złoto i srebro wykazują zmienność i mniejszą przewidywalność w swoich cenach. Bezrobocie jest wysoce autokorelowane, co sugeruje trwałość zmian w tej zmiennej. 
+
+# Wizualizacja reakcji na impuls
+```{r}
+plot(irf(model, 
+         impulse="KGHM", 
+         response=c("Zloto", "Srebro", "Bezrobocie", "KGHM"), 
+         boot=FALSE))
+```
+
+**Pierwszy wykres** wskazuje, że szok cenowy w złocie ma najbardziej znaczący wpływ na akcje KGHM, z długoterminowym efektem wzrostu. Srebro wykazuje stabilną, ale niewielką pozytywną odpowiedź, podczas gdy bezrobocie i samo złoto są prawie niezmiennicze w odpowiedzi na szoki cen złota.
+
+**Drugi wykres** mówi impuls w cenach srebra wywołuje głównie negatywne reakcje w cenach złota i własnych cenach srebra oraz minimalne wpływy na bezrobocie i wartości akcji KGHM. Wydaje się, że wzrost cen srebra może być krótkotrwały i prowadzić do późniejszych korekt cenowych.
+
+**Trzeci wykres** wskazuje, że wyższe bezrobocie prowadzi do wzrostu cen złota i srebra. KGHM wykazuje zależność od szerszej kondycji gospodarczej, widoczną w stopniowym wzroście reakcji na zwiększone bezrobocie.
+
+**Czwart wykres** wskazuje, że impuls w akcjach KGHM nie ma znaczącego wpływu na rynki złota i srebra ani na poziom bezrobocia.
+
+
